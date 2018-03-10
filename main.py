@@ -12,7 +12,7 @@ class Recorder:
         self.show_fps = show_fps  # Controls whether the FPS is displayed in top-left of GUI window.
 
         # Constants
-        self.window_name = 'HR Observer'
+        self.window_name = 'Esc to exit'
         self.buffer_max_size = 300
         self.min_hz = 0.83  # 50 BPM
         self.max_hz = 3.33  # 200 BPM
@@ -33,6 +33,42 @@ class Recorder:
         self.G = []
         self.R = []
         self.times = []
+
+    def detected_gui(self, curr_buffer_size):
+        # If there's not enough data to compute HR, show an empty graph with loading text and
+        # the BPM placeholder
+        graph = np.zeros((self.graph_height, self.graph_width, 3), np.uint8)
+        pct = int(round(float(curr_buffer_size) / self.min_frames * 100.0))
+        loading_text = 'Computing pulse: ' + str(pct) + '%'
+        loading_size, loading_base = cv2.getTextSize(loading_text, fontFace=cv2.FONT_HERSHEY_DUPLEX,
+                                                     fontScale=1, thickness=1)
+        loading_x = int((self.graph_width - loading_size[0]) / 2)
+        loading_y = int(self.graph_height / 2 + loading_base)
+        cv2.putText(graph, loading_text, (loading_x, loading_y), fontFace=cv2.FONT_HERSHEY_DUPLEX,
+                    fontScale=1, color=(0, 255, 0), thickness=1)
+
+        waiting_text = 'Please wait until the value to become stable.'
+        cv2.putText(graph, waiting_text, (loading_x - 25, loading_y + 25), fontFace=cv2.FONT_HERSHEY_DUPLEX,
+                    fontScale=0.6, color=(0, 255, 0), thickness=1)
+        bpm_display = draw_bpm('--', self.bpm_display_width, self.graph_height)
+        return graph, bpm_display
+
+    def no_face_gui(self, view):
+        self.graph_width = int(view.shape[1] * 0.75)
+        self.bpm_display_width = view.shape[1] - self.graph_width
+        graph = np.zeros((self.graph_height, self.graph_width, 3), np.uint8)
+        loading_text = 'No face or more than one face detected.'
+        loading_size, loading_base = cv2.getTextSize(loading_text, fontFace=cv2.FONT_HERSHEY_DUPLEX,
+                                                     fontScale=1, thickness=1)
+        loading_x = int((self.graph_width - loading_size[0] / 1.5) / 2)
+        loading_y = int(self.graph_height / 2 + loading_base)
+        cv2.putText(graph, loading_text, (loading_x, loading_y), fontFace=cv2.FONT_HERSHEY_DUPLEX,
+                    fontScale=0.7, color=(0, 255, 0), thickness=1)
+
+        bpm_display = draw_bpm('--', self.bpm_display_width, self.graph_height)
+        graph = np.hstack((graph, bpm_display))
+        view = np.vstack((view, graph))
+        return view
 
     # Main functions.
     def run_pulse_observer_in_g_method(self):
@@ -93,6 +129,7 @@ class Recorder:
 
                     # Filter signal with Butterworth bandpass filter
                     filtered = butterworth_filter(demeaned, self.min_hz, self.max_hz, fps, order=5)
+                    filtered = check_nan(filtered)
 
                     # Compute FFT
                     fft = np.abs(np.fft.rfft(filtered))
@@ -125,25 +162,20 @@ class Recorder:
                         view = draw_fps(view, fps)
 
                 else:
-                    # If there's not enough data to compute HR, show an empty graph with loading text and
-                    # the BPM placeholder
-                    graph = np.zeros((self.graph_height, self.graph_width, 3), np.uint8)
-                    pct = int(round(float(curr_buffer_size) / self.min_frames * 100.0))
-                    loading_text = 'Computing pulse: ' + str(pct) + '%'
-                    loading_size, loading_base = cv2.getTextSize(loading_text, fontFace=cv2.FONT_HERSHEY_DUPLEX,
-                                                                 fontScale=1, thickness=1)
-                    loading_x = int((self.graph_width - loading_size[0]) / 2)
-                    loading_y = int(self.graph_height / 2 + loading_base)
-                    cv2.putText(graph, loading_text, (loading_x, loading_y), fontFace=cv2.FONT_HERSHEY_DUPLEX,
-                                fontScale=1, color=(0, 255, 0), thickness=1)
-                    bpm_display = draw_bpm('--', self.bpm_display_width, self.graph_height)
+                    graph, bpm_display = self.detected_gui(curr_buffer_size)
 
+                # Show GUI in window
                 graph = np.hstack((graph, bpm_display))
                 view = np.vstack((view, graph))
 
             else:
                 # No faces detected, so we must clear the lists of values and timestamps. Otherwise there will be a gap
                 # in timestamps when a face is detected again.
+
+                # GUI
+                view = self.no_face_gui(view)
+
+                # Clear values
                 del self.values[:]
                 del self.times[:]
 
@@ -211,6 +243,7 @@ class Recorder:
 
                     # Filter signal with Butterworth bandpass filter
                     filtered = butterworth_filter(demeaned, self.min_hz, self.max_hz, fps, order=5)
+                    filtered = check_nan(filtered)
 
                     # Compute FFT
                     fft = np.abs(np.fft.rfft(filtered))
@@ -243,25 +276,20 @@ class Recorder:
                         view = draw_fps(view, fps)
 
                 else:
-                    # If there's not enough data to compute HR, show an empty graph with loading text and
-                    # the BPM placeholder
-                    graph = np.zeros((self.graph_height, self.graph_width, 3), np.uint8)
-                    pct = int(round(float(curr_buffer_size) / self.min_frames * 100.0))
-                    loading_text = 'Computing pulse: ' + str(pct) + '%'
-                    loading_size, loading_base = cv2.getTextSize(loading_text, fontFace=cv2.FONT_HERSHEY_DUPLEX,
-                                                                 fontScale=1, thickness=1)
-                    loading_x = int((self.graph_width - loading_size[0]) / 2)
-                    loading_y = int(self.graph_height / 2 + loading_base)
-                    cv2.putText(graph, loading_text, (loading_x, loading_y), fontFace=cv2.FONT_HERSHEY_DUPLEX,
-                                fontScale=1, color=(0, 255, 0), thickness=1)
-                    bpm_display = draw_bpm('--', self.bpm_display_width, self.graph_height)
+                    graph, bpm_display = self.detected_gui(curr_buffer_size)
 
+                # Show GUI in window
                 graph = np.hstack((graph, bpm_display))
                 view = np.vstack((view, graph))
 
             else:
                 # No faces detected, so we must clear the lists of values and timestamps. Otherwise there will be a gap
                 # in timestamps when a face is detected again.
+
+                # GUI
+                view = self.no_face_gui(view)
+
+                # Clear values
                 del self.values[:]
                 del self.times[:]
 
@@ -329,6 +357,7 @@ class Recorder:
 
                     # Filter signal with FIR
                     filtered = adaptive_grd(self.R, self.G, self.B, fps)
+                    filtered = check_nan(filtered)
 
                     # Compute FFT
                     fft = np.abs(np.fft.rfft(filtered))
@@ -361,25 +390,20 @@ class Recorder:
                         view = draw_fps(view, fps)
 
                 else:
-                    # If there's not enough data to compute HR, show an empty graph with loading text and
-                    # the BPM placeholder
-                    graph = np.zeros((self.graph_height, self.graph_width, 3), np.uint8)
-                    pct = int(round(float(curr_buffer_size) / self.min_frames * 100.0))
-                    loading_text = 'Computing pulse: ' + str(pct) + '%'
-                    loading_size, loading_base = cv2.getTextSize(loading_text, fontFace=cv2.FONT_HERSHEY_DUPLEX,
-                                                                 fontScale=1, thickness=1)
-                    loading_x = int((self.graph_width - loading_size[0]) / 2)
-                    loading_y = int(self.graph_height / 2 + loading_base)
-                    cv2.putText(graph, loading_text, (loading_x, loading_y), fontFace=cv2.FONT_HERSHEY_DUPLEX,
-                                fontScale=1, color=(0, 255, 0), thickness=1)
-                    bpm_display = draw_bpm('--', self.bpm_display_width, self.graph_height)
+                    graph, bpm_display = self.detected_gui(curr_buffer_size)
 
+                # Show GUI in window
                 graph = np.hstack((graph, bpm_display))
                 view = np.vstack((view, graph))
 
             else:
                 # No faces detected, so we must clear the lists of values and timestamps. Otherwise there will be a gap
                 # in timestamps when a face is detected again.
+
+                # GUI
+                view = self.no_face_gui(view)
+
+                # Clear values
                 del self.values[:]
                 del self.R[:]
                 del self.G[:]
@@ -461,6 +485,7 @@ class Recorder:
 
                     # BSS
                     filtered = jade_ica_process(rgb, fps)
+                    filtered = check_nan(filtered)
 
                     # Compute FFT
                     fft = np.abs(np.fft.rfft(filtered))
@@ -493,25 +518,20 @@ class Recorder:
                         view = draw_fps(view, fps)
 
                 else:
-                    # If there's not enough data to compute HR, show an empty graph with loading text and
-                    # the BPM placeholder
-                    graph = np.zeros((self.graph_height, self.graph_width, 3), np.uint8)
-                    pct = int(round(float(curr_buffer_size) / self.min_frames * 100.0))
-                    loading_text = 'Computing pulse: ' + str(pct) + '%'
-                    loading_size, loading_base = cv2.getTextSize(loading_text, fontFace=cv2.FONT_HERSHEY_DUPLEX,
-                                                                 fontScale=1, thickness=1)
-                    loading_x = int((self.graph_width - loading_size[0]) / 2)
-                    loading_y = int(self.graph_height / 2 + loading_base)
-                    cv2.putText(graph, loading_text, (loading_x, loading_y), fontFace=cv2.FONT_HERSHEY_DUPLEX,
-                                fontScale=1, color=(0, 255, 0), thickness=1)
-                    bpm_display = draw_bpm('--', self.bpm_display_width, self.graph_height)
+                    graph, bpm_display = self.detected_gui(curr_buffer_size)
 
+                # Show GUI in window
                 graph = np.hstack((graph, bpm_display))
                 view = np.vstack((view, graph))
 
             else:
                 # No faces detected, so we must clear the lists of values and timestamps. Otherwise there will be a gap
                 # in timestamps when a face is detected again.
+
+                # GUI
+                view = self.no_face_gui(view)
+
+                # Clear values
                 del self.values[:]
                 del self.R[:]
                 del self.G[:]
@@ -574,7 +594,7 @@ class Recorder:
 
                 curr_buffer_size = len(self.times)
 
-                # Don't try to compute pulse until we have at least the min. number of frames (e.g. 60)
+                # Don't try to compute pulse until we have at least the min. number of frames
                 if curr_buffer_size > self.min_frames:
                     # Compute relevant times
                     time_elapsed = self.times[-1] - self.times[0]
@@ -586,6 +606,7 @@ class Recorder:
                     # POS and normalize the output
                     filtered = sb_pos(rgb, curr_buffer_size)
                     filtered = normalize(filtered)
+                    filtered = check_nan(filtered)
 
                     # Compute FFT
                     fft = np.abs(np.fft.rfft(filtered))
@@ -618,25 +639,20 @@ class Recorder:
                         view = draw_fps(view, fps)
 
                 else:
-                    # If there's not enough data to compute HR, show an empty graph with loading text and
-                    # the BPM placeholder
-                    graph = np.zeros((self.graph_height, self.graph_width, 3), np.uint8)
-                    pct = int(round(float(curr_buffer_size) / self.min_frames * 100.0))
-                    loading_text = 'Computing pulse: ' + str(pct) + '%'
-                    loading_size, loading_base = cv2.getTextSize(loading_text, fontFace=cv2.FONT_HERSHEY_DUPLEX,
-                                                                 fontScale=1, thickness=1)
-                    loading_x = int((self.graph_width - loading_size[0]) / 2)
-                    loading_y = int(self.graph_height / 2 + loading_base)
-                    cv2.putText(graph, loading_text, (loading_x, loading_y), fontFace=cv2.FONT_HERSHEY_DUPLEX,
-                                fontScale=1, color=(0, 255, 0), thickness=1)
-                    bpm_display = draw_bpm('--', self.bpm_display_width, self.graph_height)
+                    graph, bpm_display = self.detected_gui(curr_buffer_size)
 
+                # Show GUI in window
                 graph = np.hstack((graph, bpm_display))
                 view = np.vstack((view, graph))
 
             else:
-                # No faces detected, so we must clear the lists of values and timestamps. Otherwise there will be a gap
-                # in timestamps when a face is detected again.
+                # No faces detected, so we must clear the lists of values and timestamps.
+                # Otherwise there will be a gap in timestamps when a face is detected again.
+
+                # GUI
+                view = self.no_face_gui(view)
+
+                # Clear values
                 del self.values[:]
                 del self.R[:]
                 del self.G[:]
@@ -652,8 +668,12 @@ class Recorder:
 
 def main():
     # Choose methods to estimate HR
-    method = ['G', 'GRD', 'Adaptive GRD', 'ICA', 'POS']
-    selected_method = method[2]
+    method = ['G',  # Not good
+              'GRD',  # Relatively good
+              'Adaptive GRD',  # Relatively good
+              'ICA',  # Unstable
+              'POS']  # Slow
+    selected_method = method[0]
 
     # Initialize camera and detector
     detector = dlib.get_frontal_face_detector()

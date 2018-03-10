@@ -5,6 +5,24 @@ import pandas as pd
 import jade
 
 
+# # # Tools # # #
+def check_nan(data):
+    copy_data = np.asarray(data)
+    if np.isnan(np.min(copy_data)):
+        return remove_nan(copy_data)
+    else:
+        return data
+
+
+def remove_nan(data):
+    temp_values = pd.DataFrame(data)
+    temp_values = temp_values.fillna(temp_values.mean())
+    values = np.ndarray.flatten(np.array(temp_values))
+    data = values.tolist()
+    print("Captured invalid data and they have been already rectified.")
+    return data
+
+
 # # # Methods # # #
 def green(roi1, roi2):
     roi1_green = roi1[:, :, 1]
@@ -57,6 +75,7 @@ def adaptive_grd(r, g, b, fps):
     return sig
 
 
+# FIXME: Better picking algorithm is needed.
 def jade_ica_process(rgb, fs):
     B = jade.jadeR(rgb)
     # Y = B * matrix(rgb)
@@ -96,11 +115,11 @@ def jade_ica_process(rgb, fs):
 
 def sb_pos(rgb, total_frame):
     # Parameters of window for POS algorithm (in 20 fps).
-    # (1) L = 32 (1.6 s), B = [3,6];
-    # (2) L = 64 (3.2 s), B = [4,12];
-    # (3) L = 128 (6.4 s), B = [6,24];
-    # (4) L = 256 (12.8 s), B = [10,50];
-    # (5) L = 512 (25.6 s), B = [18,100].
+    # (1) l = 32 (1.6 s), b = [3,6];
+    # (2) l = 64 (3.2 s), b = [4,12];
+    # (3) l = 128 (6.4 s), b = [6,24];
+    # (4) l = 256 (12.8 s), b = [10,50];
+    # (5) l = 512 (25.6 s), b = [18,100].
     # Here the parameter group (1) and (2) are performed well.
     pos = np.array([[0, 1, -1], [-2, 1, 1]])
     l = 64
@@ -162,11 +181,7 @@ def detrending(data):
     try:
         detrended = signal.detrend(np.array(data), type='linear')
     except ValueError:
-        print("Captured invalid data and they have been already rectified.")
-        temp_values = pd.DataFrame(data)
-        temp_values = temp_values.fillna(temp_values.mean())
-        values = np.ndarray.flatten(np.array(temp_values))
-        data = values.tolist()
+        data = remove_nan(data)
         detrended = signal.detrend(np.array(data), type='linear')
     return detrended, data
 
@@ -211,31 +226,6 @@ def get_nose_roi(face_points):
     return int(left), int(right), int(top), int(bottom)
 
 
-# Gets region of interest that includes forehead, eyes, and nose.
-# Note:  Combination of forehead and nose performs better.
-#        This is probably because this ROI includes the eyes, and eye blinking adds noise.
-def get_full_roi(face_points):
-    points = np.zeros((len(face_points.parts()), 2))
-    for i, part in enumerate(face_points.parts()):
-        points[i] = (part.x, part.y)
-
-    # Only keep the points that correspond to the internal features of the face (e.g. mouth, nose, eyes, brows).
-    # The points outlining the jaw are discarded.
-    # See:  https://matthewearl.github.io/2015/07/28/switching-eds-with-python/
-    min_x = int(np.min(points[17:47, 0]))
-    min_y = int(np.min(points[17:47, 1]))
-    max_x = int(np.max(points[17:47, 0]))
-    max_y = int(np.max(points[17:47, 1]))
-
-    center_x = min_x + (max_x - min_x) / 2
-    # center_y = min_y + (max_y - min_y) / 2
-    left = min_x + int((center_x - min_x) * 0.15)
-    right = max_x - int((max_x - center_x) * 0.15)
-    top = int(min_y * 0.88)
-    bottom = max_y
-    return int(left), int(right), int(top), int(bottom)
-
-
 # # # GUI # # #
 # Draws the heart rate graph in the GUI window.
 def draw_graph(data, graph_width, graph_height, buffer_max_size=300):
@@ -260,14 +250,27 @@ def draw_bpm(bpm_str, bpm_width, bpm_height):
                                                    thickness=2)
     bpm_text_x = int((bpm_width - bpm_text_size[0]) / 2)
     bpm_text_y = int(bpm_height / 2 + bpm_text_base)
+
+    # Change the text color in different range
+    colors = [(0, 238, 238),  # Yellow
+              (120, 255, 0),  # Green
+              (36, 36, 238)]  # Red
+    color = colors[1]
+    if not bpm_str == '--':
+        bpm_int = int(bpm_str)
+        if bpm_int < 60:
+            color = colors[0]
+        elif bpm_int > 100:
+            color = colors[2]
+
     cv2.putText(bpm_display, bpm_str, (bpm_text_x, bpm_text_y), fontFace=cv2.FONT_HERSHEY_DUPLEX,
-                fontScale=2.7, color=(0, 255, 0), thickness=2)
+                fontScale=2.7, color=color, thickness=2)
     bpm_label_size, bpm_label_base = cv2.getTextSize('BPM', fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=0.6,
                                                      thickness=1)
     bpm_label_x = int((bpm_width - bpm_label_size[0]) / 2)
     bpm_label_y = int(bpm_height - bpm_label_size[1] * 2)
     cv2.putText(bpm_display, 'BPM', (bpm_label_x, bpm_label_y),
-                fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=0.6, color=(0, 255, 0), thickness=1)
+                fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=0.6, color=color, thickness=1)
     return bpm_display
 
 
